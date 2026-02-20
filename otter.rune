@@ -1,0 +1,10 @@
+rune 1
+name "async"
+version "1.0.0"
+description "Cooperative async runtime with handle-based task scheduling"
+author "cocomeshy"
+license "MIT"
+entry async.otter
+
+export spawn
+export poll

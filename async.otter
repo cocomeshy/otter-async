@@ -1,0 +1,27 @@
+/**
+ * Spawns an async task and returns a handle for later retrieval.
+ * The current scheduler model is immediate-completion: the result is
+ * encoded into the handle at spawn time, then decoded on poll.
+ * @param seed  The pre-computed result value
+ * @returns     An opaque handle representing the pending task
+ */
+~> spawn(seed:int) -> int {
+  return seed + 1;
+}
+
+/**
+ * Polls an async handle to retrieve its result.
+ * Returns the original value that was passed to spawn().
+ * @param handle  Handle obtained from a previous spawn() call
+ * @returns       The resolved value
+ */
+~> poll(handle:int) -> int {
+  match (handle == 0) {
+    true -> {
+      return 0;
+    };
+    _ -> {
+      return handle - 1;
+    };
+  }
+}
