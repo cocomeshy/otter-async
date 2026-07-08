@@ -1,47 +1,52 @@
-﻿# async
+# otter-async
 
-Cooperative async runtime for Otter. Provides task spawning and result polling with immediate-completion scheduling.
+Cooperative async/await runtime (one OS thread per task).
 
-## API Reference
-
-### `async.spawn(seed:int) -> int`
-
-Create an async task. Encodes the seed value into a handle that can be polled later.
-
-- **Parameters:**
-  - `seed` — Integer value to encode as the task result
-- **Returns:** Task handle (encoded integer)
-
-```otter
-rock handle:int = async.spawn(42);
-```
-
----
-
-### `async.poll(handle:int) -> int`
-
-Retrieve the result from a previously spawned task handle.
-
-- **Parameters:**
-  - `handle` — Handle returned by `async.spawn`
-- **Returns:** The decoded result value
-
-```otter
-rock handle:int = async.spawn(42);
-rock result:int = async.poll(handle);  // 42
-```
-
-### How It Works
-
-The current scheduler uses immediate completion: `spawn` encodes the value by multiplying by 7 and adding 3, `poll` reverses the encoding. This provides a foundation for future cooperative multitasking.
-
-## Dependencies
-
-None.
+Part of the Otter standard library. Otter is a compiled systems language with no garbage collector and no libc dependency (pthread for threading is the one exception); everything else goes through raw syscalls and DLL imports.
 
 ## Install
 
+In your `otter.nest`:
+
+```nest
+deps {
+  use "async" want "1.0.0"
+}
 ```
-otter pkg add async
+
+Then:
+
+```sh
 otter pkg pull
 ```
+
+## API reference
+
+### `async.spawn(thunk:rawptr, task:rawptr) -> int`
+
+Launches the task thunk on a worker thread. Returns an opaque handle (a control block: { task_ptr, thread_handle }).
+
+Parameters:
+
+- `thunk`: Compiler-generated worker entry (__otter_async_thunk_*)
+- `task`: Heap task block carrying args + result + done flag
+
+### `async.poll(handle:int) -> int`
+
+Blocks until the awaited task completes, reclaims the worker thread and control block, and returns the TASK BLOCK address as an int. The compiler's `await` lowering reads the raw result slot (task@8) itself - the slot can hold a tagged bignum, which must not round-trip through a rawptr load - and frees the task block afterwards.
+
+Parameters:
+
+- `handle`: Handle returned by spawn()
+
+Returns: Address of the completed task block
+
+---
+
+## Dependencies
+
+memory, thread.
+
+## License
+
+MIT.

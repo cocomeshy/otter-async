@@ -1,6 +1,6 @@
 rune 1
 name "async"
 version "1.0.0"
-description "Standard library async package"
+description "Cooperative async/await runtime (one OS thread per task)"
 author "cocomeshy"
 license "MIT"
