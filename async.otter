@@ -1,27 +1,59 @@
+use memory;
+use thread;
+
 /**
- * Spawns an async task and returns a handle for later retrieval.
- * The current scheduler model is immediate-completion: the result is
- * encoded into the handle at spawn time, then decoded on poll.
- * @param seed  The pre-computed result value
- * @returns     An opaque handle representing the pending task
+ * Async runtime (thread-backed).
+ *
+ * The compiler lowers a call to an `async` function into:
+ *   1. a heap task block  { done:i64, result:i64, args... }
+ *   2. `spawn(thunk_ptr, task_ptr)` - run the fn on a worker thread
+ * and lowers `await h` into `poll(h)`.
+ *
+ * v1 model: one OS thread per async call; `poll` blocks until the worker
+ * sets the done flag, then joins. Await a handle exactly once.
  */
-~> spawn(seed:int) -> int {
-  return seed + 1;
+
+/**
+ * Launches the task thunk on a worker thread.
+ * Returns an opaque handle (a control block: { task_ptr, thread_handle }).
+ * @param thunk  Compiler-generated worker entry (__otter_async_thunk_*)
+ * @param task   Heap task block carrying args + result + done flag
+ */
+~> spawn(thunk:rawptr, task:rawptr) -> int {
+  rock ctl:rawptr = memory.alloc(16);
+  *ctl = (int)task;
+  rock th:rawptr = thread.spawn(thunk, task);
+  rock th_slot:rawptr = ctl @ 8;
+  *th_slot = (int)th;
+  return (int)ctl;
 }
 
 /**
- * Polls an async handle to retrieve its result.
- * Returns the original value that was passed to spawn().
- * @param handle  Handle obtained from a previous spawn() call
- * @returns       The resolved value
+ * Blocks until the awaited task completes, reclaims the worker thread and
+ * control block, and returns the TASK BLOCK address as an int. The compiler's
+ * `await` lowering reads the raw result slot (task@8) itself - the slot can
+ * hold a tagged bignum, which must not round-trip through a rawptr load -
+ * and frees the task block afterwards.
+ * @param handle  Handle returned by spawn()
+ * @returns       Address of the completed task block
  */
 ~> poll(handle:int) -> int {
-  match (handle == 0) {
-    true -> {
-      return 0;
-    };
-    _ -> {
-      return handle - 1;
-    };
+  rock ctl:rawptr = (rawptr)handle;
+  rock task:rawptr = (rawptr)*ctl;
+  rock th_slot:rawptr = ctl @ 8;
+  rock th:rawptr = (rawptr)*th_slot;
+
+  // Spin on the done flag (task@0), yielding to avoid busy-burn.
+  flow waiting:bool = true;
+  loop (waiting) {
+    rock done:int = __otter_atomic_load64(task);
+    match (done == 1) {
+      true -> { waiting = false; };
+      _ -> { thread.sleep(1); };
+    }
   }
+
+  thread.join(th);
+  memory.free(ctl);
+  return (int)task;
 }
