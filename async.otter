@@ -43,13 +43,27 @@ use thread;
   rock th_slot:rawptr = ctl @ 8;
   rock th:rawptr = (rawptr)*th_slot;
 
-  // Spin on the done flag (task@0), yielding to avoid busy-burn.
+  // Adaptive wait on the done flag (task@0): spin with cpu-pause hints for
+  // short tasks (sub-microsecond wakeup), then back off through nanosleeps
+  // capped at 1ms. Short awaits no longer pay a 1ms latency floor and long
+  // awaits no longer fire syscalls every millisecond.
+  flow spins:int = 0;
+  flow napms:int = 0;
   flow waiting:bool = true;
   loop (waiting) {
     rock done:int = __otter_atomic_load64(task);
     match (done == 1) {
       true -> { waiting = false; };
-      _ -> { thread.sleep(1); };
+      _ -> {
+        match (spins < 2000) {
+          true -> { __otter_cpu_pause(); spins += 1; };
+          _ -> {
+            match (napms < 1) { true -> { napms = 1; }; _ -> {}; }
+            thread.sleep(napms);
+            match (napms < 8) { true -> { napms = napms * 2; }; _ -> {}; }
+          };
+        }
+      };
     }
   }
 
